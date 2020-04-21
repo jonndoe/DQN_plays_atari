@@ -8,6 +8,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
 COLAB = False
 CUDA = True
 
@@ -23,7 +26,10 @@ MEAN_REWARD_BOUND = 19.5
 
 GAMMA = 0.99
 BATCH_SIZE = 32
-REPLAY_SIZE = 10 ** 4 * 2
+# if REPLAY_SIZE IS BIG IS POSSIBLY CAUSES RAM BLOATING
+# SO I TRIED TO REDUCE IT
+#REPLAY_SIZE = 10 ** 4 * 2
+REPLAY_SIZE = 10000
 LEARNING_RATE = 1e-4
 TARGET_UPDATE_FREQ = 1000
 LEARNING_STARTS = 10000
@@ -43,9 +49,11 @@ class ExperienceReplay:
         self.buffer = collections.deque(maxlen=capacity)
 
     def __len__(self):
+        #print('buffer size is:', len(self.buffer))
         return len(self.buffer)
 
     def append(self, experience):
+        #print('expirience:', experience)
         self.buffer.append(experience)
 
     def sample(self, batch_size):
@@ -118,17 +126,18 @@ def calculate_loss(batch, net, target_net, device="cpu"):
 
 print("ReplayMemory will require {}gb of GPU RAM".format(round(REPLAY_SIZE * 32 * 84 * 84 / 1e+9, 2)))
 
+if torch.cuda.is_available():
+    #device = torch.device("cuda:0")  # you can continue going on here, like cuda:1 cuda:2....etc.
+    print("Running on the GPU")
+else:
+    #device = torch.device("cpu")
+    print("Running on the CPU")
+
+
+
 if __name__ == "__main__":
     if COLAB:
-        """Default argparse does not work on colab"""
-        class ColabArgParse():
-            def __init__(self, cuda, env, reward, model):
-                self.cuda = cuda
-                self.env = env
-                self.reward = reward
-                self.model = model
-
-        args = ColabArgParse(CUDA, ENV_NAME, MEAN_REWARD_BOUND, MODEL)
+        pass
     else:
         parser = argparse.ArgumentParser()
         parser.add_argument("--cuda", default=True, action="store_true", help="Enable cuda")
@@ -139,13 +148,13 @@ if __name__ == "__main__":
         parser.add_argument("-m", "--model", help="Model file to load")
         args = parser.parse_args()
 
-    device = torch.device("cuda" if args.cuda else "cpu")
+    device = torch.device("cuda:0")
+    #device = torch.device("cuda:0" if args.cuda else "cpu")
+    #device = torch.device("cpu")
 
     # Make Gym environement and DQNs
     if COLAB:
-        env = make_env(args.env)
-        net = DQN(env.observation_space.shape, env.action_space.n).to(device)
-        target_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
+        pass
     else:
         env = wrappers.make_env(args.env)
         net = dqn_model.DQN(env.observation_space.shape, env.action_space.n).to(device)
@@ -155,8 +164,11 @@ if __name__ == "__main__":
     print(net)
 
     replay_memory = ExperienceReplay(REPLAY_SIZE)
+    print('replay_memory initialized')
     agent = Agent(env, replay_memory)
+    print('agent initialized')
     epsilon = EPSILON_START
+
 
     if LOAD_MODEL:
         net.load_state_dict(torch.load(args.model, map_location=lambda storage, loc: storage))
@@ -164,6 +176,7 @@ if __name__ == "__main__":
         print("Models loaded from disk!")
         # Lower exploration rate
         EPSILON_START = EPSILON_FINAL
+
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
     total_rewards = []
@@ -193,13 +206,24 @@ if __name__ == "__main__":
             if best_mean_reward is None or best_mean_reward < mean_reward:
                 torch.save(net.state_dict(), args.env + "-" + str(len(total_rewards)) + ".dat")
                 if COLAB:
-                    gsync.update_file_to_folder(args.env + "-" + str(len(total_rewards)) + ".dat")
+                    pass
                 if best_mean_reward is not None:
                     print("New best mean reward {} -> {}, model saved".format(round(best_mean_reward, 3), round(mean_reward, 3)))
                 best_mean_reward = mean_reward
             if mean_reward > args.reward and len(total_rewards) > 10:
                 print("Game solved in {} frames! Average score of {}".format(frame_idx, mean_reward))
                 break
+
+            # show memory RAM usage
+            # pip install psutil
+            import os
+            import psutil
+            def show_RAM_usage():
+                py = psutil.Process(os.getpid())
+                print('RAM usage: {} GB'.format(py.memory_info()[0] / 2. ** 30))
+            show_RAM_usage()
+
+
 
         if len(replay_memory) < LEARNING_STARTS:
             continue
@@ -212,6 +236,11 @@ if __name__ == "__main__":
         loss_t = calculate_loss(batch, net, target_net, device=device)
         loss_t.backward()
         optimizer.step()
+
+
+
+
+
+
     env.close()
-    if not COLAB:
-        writer.close()
+    writer.close()
