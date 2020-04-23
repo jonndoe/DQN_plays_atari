@@ -21,29 +21,33 @@ if not COLAB:
     import argparse
     from tensorboardX import SummaryWriter
 
-ENV_NAME = "PongNoFrameskip-v4"
+#ENV_NAME = "PongNoFrameskip-v4"
+ENV_NAME = "Riverraid-v0"
 MEAN_REWARD_BOUND = 19.5
 
-GAMMA = 0.99
+GAMMA = 0.99   # used in loss_calc, ??????????????????????
 BATCH_SIZE = 32
-# if REPLAY_SIZE IS BIG IS POSSIBLY CAUSES RAM BLOATING
+# if REPLAY_SIZE IS BIG itS POSSIBLY CAUSES RAM BLOATING
 # SO I TRIED TO REDUCE IT
 #REPLAY_SIZE = 10 ** 4 * 2
-REPLAY_SIZE = 10000
+REPLAY_SIZE = 10000        # just a max len of deque to store frames (ExperienceReplay.buffer)
 LEARNING_RATE = 1e-4
-TARGET_UPDATE_FREQ = 1000
-LEARNING_STARTS = 10000
+TARGET_UPDATE_FREQ = 1000  # update target_net each 1000 frames
+#LEARNING_STARTS = 10000
+LEARNING_STARTS = 4000     # How many frames to be in replay buffer at begining of learning
 
-EPSILON_DECAY = 10**5
+EPSILON_DECAY = 10**5      # 10**5 = 100000 so epsilon will be decaying for 100 000 frames.
 EPSILON_START = 1.0
-EPSILON_FINAL = 0.02
+EPSILON_FINAL = 0.02       # after 100 000 frames epsilon will stay at this value
 
 MODEL = "PretrainedModels/PongNoFrameskip-v4-407.dat"
-LOAD_MODEL = True
+LOAD_MODEL = False
 
+# its like a container to store data for single frame
+# we will pass this "containers" into ExperienceReplay.buffer
 Experience = collections.namedtuple('Experience', field_names=['state', 'action', 'reward', 'done', 'new_state'])
 
-
+# class to create replay_memory
 class ExperienceReplay:
     def __init__(self, capacity):
         self.buffer = collections.deque(maxlen=capacity)
@@ -56,6 +60,7 @@ class ExperienceReplay:
         #print('expirience:', experience)
         self.buffer.append(experience)
 
+    # dtype=np.uint8 to be replaced with dtype=np.bool ?????
     def sample(self, batch_size):
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         states, actions, rewards, dones, next_states = zip(*[self.buffer[idx] for idx in indices])
@@ -81,13 +86,21 @@ class Agent:
         Add state/action/reward to experience replay
         """
         done_reward = None
+        # np.random.random() is random number from 0 to 1.
         if np.random.random() < epsilon:
+            # take random action
             action = env.action_space.sample()
         else:
+            # get pixels for current frame
             state_a = np.array([self.state], copy=False)
+            # convert to torch datatype and send to GPU
             state_v = torch.tensor(state_a).to(device)
+            # get Q values for state
             q_vals_v = net(state_v)
+
             _, act_v = torch.max(q_vals_v, dim=1)
+            #print('act_v', act_v, 'act_v.item():', act_v.item())
+            # action to be done based on state_v
             action = int(act_v.item())
 
         # do step in the environment
@@ -95,14 +108,18 @@ class Agent:
         self.total_reward += reward
         new_state = new_state
 
+        # just store dato for current frame in exp variable
         exp = Experience(self.state, action, reward, is_done, new_state)
+        # append this data to replay_memory
         self.replay_memory.append(exp)
         self.state = new_state
         if is_done:
             done_reward = self.total_reward
+            # reset the environment if done
             self._reset()
         return done_reward
 
+# we use 2 nets (net, target_net) to calculate loss ???????????????????
 def calculate_loss(batch, net, target_net, device="cpu"):
     """
     Calculate MSE between actual state action values,
@@ -188,8 +205,11 @@ if __name__ == "__main__":
     while True:
         frame_idx += 1
         epsilon = max(EPSILON_FINAL, EPSILON_START - frame_idx / EPSILON_DECAY)
+        #print('epsilon',epsilon)
 
+        # agent makes action every frame
         reward = agent.play_step(net, epsilon, device=device)
+
         if reward is not None:
             total_rewards.append(reward)
             speed = (frame_idx - timestep_frame) / (time.time() - timestep)
@@ -224,10 +244,14 @@ if __name__ == "__main__":
             show_RAM_usage()
 
 
-
+        # iterating through this loop until buffer is filled with
+        # specified number of frames(LEARNING_STARTS) for replaying .
         if len(replay_memory) < LEARNING_STARTS:
+            #print('len(replay_memory):',len(replay_memory),LEARNING_STARTS)
             continue
 
+
+        # update target_net every 1000 frames
         if frame_idx % TARGET_UPDATE_FREQ == 0:
             target_net.load_state_dict(net.state_dict())
 
