@@ -11,7 +11,8 @@ from lib import dqn_model
 
 import collections
 
-DEFAULT_ENV_NAME = "PongNoFrameskip-v4"
+#DEFAULT_ENV_NAME = "PongNoFrameskip-v4"
+DEFAULT_ENV_NAME = "Riverraid-v0"
 FPS = 25
 
 if __name__ == "__main__":
@@ -38,6 +39,7 @@ if __name__ == "__main__":
     while True:
         start_ts = time.time()
         if args.visualize:
+            time.sleep(0.1)
             env.render()
         state_v = torch.tensor(np.array([state], copy=False))
         q_vals = net(state_v).data.numpy()[0]

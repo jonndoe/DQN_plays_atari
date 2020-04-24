@@ -23,25 +23,27 @@ if not COLAB:
 
 #ENV_NAME = "PongNoFrameskip-v4"
 ENV_NAME = "Riverraid-v0"
-MEAN_REWARD_BOUND = 19.5
+#MEAN_REWARD_BOUND = 19.5 # for PongNoFrameskip env
+MEAN_REWARD_BOUND = 5000  # for Riverraid-v0
 
 GAMMA = 0.99   # used in loss_calc, ??????????????????????
 BATCH_SIZE = 32
 # if REPLAY_SIZE IS BIG itS POSSIBLY CAUSES RAM BLOATING
 # SO I TRIED TO REDUCE IT
 #REPLAY_SIZE = 10 ** 4 * 2
-REPLAY_SIZE = 10000        # just a max len of deque to store frames (ExperienceReplay.buffer)
+REPLAY_SIZE = 4000        # just a max len of deque to store frames (ExperienceReplay.buffer)
 LEARNING_RATE = 1e-4
 TARGET_UPDATE_FREQ = 1000  # update target_net each 1000 frames
 #LEARNING_STARTS = 10000
-LEARNING_STARTS = 4000     # How many frames to be in replay buffer at begining of learning
+LEARNING_STARTS = 3000 # How many frames to be in replay buffer at begining of learning
 
 EPSILON_DECAY = 10**5      # 10**5 = 100000 so epsilon will be decaying for 100 000 frames.
 EPSILON_START = 1.0
-EPSILON_FINAL = 0.02       # after 100 000 frames epsilon will stay at this value
+EPSILON_FINAL = 0.01       # after 100 000 frames epsilon will stay at this value
+
 
 MODEL = "PretrainedModels/PongNoFrameskip-v4-407.dat"
-LOAD_MODEL = False
+LOAD_MODEL = True
 
 # its like a container to store data for single frame
 # we will pass this "containers" into ExperienceReplay.buffer
@@ -191,6 +193,7 @@ if __name__ == "__main__":
         net.load_state_dict(torch.load(args.model, map_location=lambda storage, loc: storage))
         target_net.load_state_dict(net.state_dict())
         print("Models loaded from disk!")
+
         # Lower exploration rate
         EPSILON_START = EPSILON_FINAL
 
@@ -203,6 +206,11 @@ if __name__ == "__main__":
     timestep = time.time()
 
     while True:
+
+        #monitor how many namedtupels we have in replay_memory
+        #print(len(replay_memory))
+
+
         frame_idx += 1
         epsilon = max(EPSILON_FINAL, EPSILON_START - frame_idx / EPSILON_DECAY)
         #print('epsilon',epsilon)
@@ -216,8 +224,8 @@ if __name__ == "__main__":
             timestep_frame = frame_idx
             timestep = time.time()
             mean_reward = np.mean(total_rewards[-100:])
-            print("{} frames: done {} games, mean reward {}, eps {}, speed {} f/s".format(
-                frame_idx, len(total_rewards), round(mean_reward, 3), round(epsilon,2), round(speed, 2)))
+            print("{} frames: done {} games, mean reward {}, best_reward {}, eps {}, speed {} f/s".format(
+                frame_idx, len(total_rewards), round(mean_reward, 3), round(best_mean_reward, 3), round(epsilon,2), round(speed, 2)))
             if not COLAB:
                 writer.add_scalar("epsilon", epsilon, frame_idx)
                 writer.add_scalar("speed", speed, frame_idx)
@@ -243,13 +251,11 @@ if __name__ == "__main__":
                 print('RAM usage: {} GB'.format(py.memory_info()[0] / 2. ** 30))
             show_RAM_usage()
 
-
         # iterating through this loop until buffer is filled with
         # specified number of frames(LEARNING_STARTS) for replaying .
         if len(replay_memory) < LEARNING_STARTS:
-            #print('len(replay_memory):',len(replay_memory),LEARNING_STARTS)
+            print('len(replay_memory):',len(replay_memory),LEARNING_STARTS)
             continue
-
 
         # update target_net every 1000 frames
         if frame_idx % TARGET_UPDATE_FREQ == 0:
@@ -260,11 +266,6 @@ if __name__ == "__main__":
         loss_t = calculate_loss(batch, net, target_net, device=device)
         loss_t.backward()
         optimizer.step()
-
-
-
-
-
 
     env.close()
     writer.close()

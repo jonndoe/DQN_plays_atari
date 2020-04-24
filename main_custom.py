@@ -2,7 +2,7 @@ import gym
 import numpy as np
 import torch
 
-env = gym.make("Riverraid-v0")
+env = gym.make("Breakout-v0")
 #print(env.action_space.n)
 
 #print(env.observation_space.high)
